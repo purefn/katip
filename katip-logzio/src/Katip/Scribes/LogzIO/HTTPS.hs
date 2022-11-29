@@ -47,6 +47,8 @@ import qualified Control.Exception.Safe          as EX
 import           Control.Monad
 import qualified Control.Retry                   as Retry
 import qualified Data.Aeson                      as A
+import qualified Data.Aeson.Key                  as A
+import qualified Data.Aeson.KeyMap               as A
 import qualified Data.ByteString.Builder         as BB
 import qualified Data.ByteString.Lazy            as LBS
 import qualified Data.ByteString.Lazy.Char8      as LBS8
@@ -435,7 +437,7 @@ measureJSONLine a = (BB.lazyByteString lbs, Bytes (LBS.length lbs))
 
 -- | Fully-rendered JSON object for an item
 fullItemObject :: K.LogItem a => K.Verbosity -> K.Item a -> A.Object
-fullItemObject verbosity item = HM.fromList
+fullItemObject verbosity item = A.fromList
   [ "app" A..= K._itemApp item
   , "env" A..= K._itemEnv item
   , "sev" A..= K._itemSeverity item
@@ -492,7 +494,7 @@ renderLineTruncated' customMaxLogLineLength verbosity item =
     -- are lazily evaluated and as such won't be computed unless the
     -- item is too big
     blankObject :: A.Object
-    blankObject = HM.fromList
+    blankObject = A.fromList
       [ "message" A..= A.String "" -- we'll start with a blank message
       , "@timestamp" A..= K._itemTime item
       ]
@@ -500,7 +502,7 @@ renderLineTruncated' customMaxLogLineLength verbosity item =
     messageBytesAllowed = maxLogLineLength - blankObjectSize
     (fallbackLine, fallbackSize) = measureJSONLine fallbackObject
     fallbackObject :: A.Object
-    fallbackObject = HM.fromList
+    fallbackObject = A.fromList
       [ "message" A..= A.toJSON (TL.take (bytes messageBytesAllowed) (TB.toLazyText (K.unLogStr (K._itemMessage item))))
       , "@timestamp" A..= A.toJSON (K._itemTime item)
       ]
@@ -606,16 +608,16 @@ annotateValue x            = x
 
 
 annotateKeys :: A.Object -> A.Object
-annotateKeys = HM.fromList . map go . HM.toList
+annotateKeys = A.fromList . map go . A.toList
   where
     go (k, A.Object o) = (k, A.Object (annotateKeys o))
     go (k, A.Array a)  = (k, A.Array (annotateValue <$> a))
-    go (k, s@(A.String _)) = (k <> stringAnn, s)
+    go (k, s@(A.String _)) = (A.fromText (A.toText k <> stringAnn), s)
     go (k, n@(A.Number sci)) = if Scientific.isFloating sci
-                               then (k <> doubleAnn, n)
-                               else (k <> longAnn, n)
-    go (k, b@(A.Bool _)) = (k <> booleanAnn, b)
-    go (k, A.Null) = (k <> nullAnn, A.Null)
+                               then (A.fromText (A.toText k <> doubleAnn), n)
+                               else (A.fromText (A.toText k <> longAnn), n)
+    go (k, b@(A.Bool _)) = (A.fromText (A.toText k <> booleanAnn), b)
+    go (k, A.Null) = (A.fromText (A.toText k <> nullAnn), A.Null)
 
 
 -------------------------------------------------------------------------------
